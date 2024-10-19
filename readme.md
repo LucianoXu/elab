@@ -67,3 +67,8 @@ Properties:
 - `global_step`
 - `proc_tokens`
 - `model_size`
+
+### utils
+```python
+get_parameter_size(model: nn.Module) -> int
+```
