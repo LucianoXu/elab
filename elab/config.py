@@ -9,7 +9,7 @@ class ELabConfig:
                 'elab_name'        : '<elab_name>',
                 'elab_version'     : '<elab_version>',
                 'elab_path'        : '.',
-                'checkpoint'        : 'latest',
+                'checkpoint'        : 'none',
                 'corpus_path'       : "~/.cache/huggingface/datasets",
 
                 'model_args'        : {},
@@ -65,7 +65,10 @@ class ELabConfig:
         The whole path is returned
         '''
 
-        if self.data['checkpoint'] == 'latest':
+        if self.data['checkpoint'] == 'none':
+            return None
+
+        elif self.data['checkpoint'] == 'latest':
             model_filename = f"{self.data['elab_name']}-{self.data['elab_version']}-*"
             weights_files = list(self.checkpoint_path.glob(model_filename))
             if len(weights_files) == 0:

@@ -25,6 +25,7 @@ class ELab:
                  config: ELabConfig | str, 
                  model: nn.Module, 
                  optimizer: optim.Optimizer,
+                 device: str = 'cpu',
                  
                  # Distributed training parameters
                  ddp: bool = False,
@@ -60,18 +61,16 @@ class ELab:
             
         else:    
             # Define the device
-            device_name = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
-            self.print("- Using device:", device_name)
-            if (device_name == 'cuda'):
+            self.print("- Using device:", device)
+            if (device == 'cuda'):
                 self.print(f"  - CUDA version: {torch.version.cuda}")
-                self.print(f"  - Device name: {torch.cuda.get_device_name(device_name.index)}") # type: ignore
-                self.print(f"  - Device memory: {torch.cuda.get_device_properties(device_name.index).total_memory / 1024 ** 3} GB") # type: ignore
-            self.device = torch.device(device_name)
+            self.device = torch.device(device)
         
         self.print(f"- checkpoint: {config.proj_path}")
 
         self.model_class = model.__class__
         self.model = model.to(self.device)
+        
         if self._ddp:
             self.model = DDP(self.model, device_ids=[self.rank])
         self.optim_class = optimizer.__class__
