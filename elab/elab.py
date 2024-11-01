@@ -5,6 +5,7 @@ import torch
 from torch import nn
 from torch.optim.optimizer import Optimizer
 from pathlib import Path
+from .utils import get_parameter_size
 
 class ELab:
     '''
@@ -57,6 +58,8 @@ class ELab:
 
         self._print("Model: ", type(model))
         self.model = model
+        self._print(" - Parameter size: ", get_parameter_size(model))
+
 
         self._print("Optimizer: ", type(optimizer))
         self.optimizer = optimizer
