@@ -1,4 +1,6 @@
 
+from datetime import datetime
+import os
 from typing import Literal, Type, Tuple, Optional, Any
 
 import torch
@@ -6,6 +8,8 @@ from torch import nn
 from torch.optim.optimizer import Optimizer
 from pathlib import Path
 from .utils import get_parameter_size
+
+CKPT_NAME = "ckpt.pth"
 
 class ELab:
     '''
@@ -28,7 +32,7 @@ class ELab:
 
     def __init__(self, 
                  folder_path: str|Path, 
-                 ckpt_name: str|Literal['latest', 'none'],
+                 version_name: str|Literal['latest', 'none'],
                  model: nn.Module,
                  optimizer: Optional[Optimizer] = None,
                  default_states: Optional[dict[str, Any]] = None,
@@ -40,7 +44,7 @@ class ELab:
         Args:
             folder_path (str or Path): The folder path where the checkpoint files are stored.
 
-            ckpt_name (str or Literal['latest', 'none']): If 'none', no checkpoint file will be loaded. Otherwise, the model and optimizer will be loaded from the specified checkpoint file. If `ckpt_name` is 'latest', the latest checkpoint file in the folder will be loaded.
+            version_name (str or Literal['latest', 'none']): The name for the checkpoint subfolder. ELab will try to load the version if it already exists. The model and optimizer will be loaded from the specified version folder. If `ckpt_name` is 'latest', the latest checkpoint file in the folder will be loaded. If `ckpt_name` is 'none', no checkpoint file will be loaded.
 
             model (nn.Module): The PyTorch model instance.
 
@@ -69,21 +73,27 @@ class ELab:
 
         self.states = default_states if default_states is not None else {}
 
-        if ckpt_name != 'none':
-            self.load(ckpt_name)
+        self.load(version_name)
     
-    def save(self, ckpt_name: str):
+    def save(self, version_name: Optional[str] = None) -> str:
         '''
         Save the model, optimizer and states of this elab to the specified checkpoint file.
 
         Args:
-            ckpt_name (str): The name of the checkpoint file.
+            version_name (str, optional): The name of the checkpoint subfolder.
+            If None, will use the time as the version.
 
         Returns:
-            None
+            str: the name for the saved version
         '''
+
+        if version_name is None:
+            # get the current time in the YYMMDDHHMMSS format
+            version_name = datetime.now().strftime('%y%m%d%H%M%S')
+
+        version_folder = self.folder_path / version_name
         
-        self.folder_path.mkdir(parents=True, exist_ok=True)
+        version_folder.mkdir(parents=True, exist_ok=True)
         
         obj = {
             'model': self.model.state_dict(),
@@ -93,49 +103,65 @@ class ELab:
 
         obj['states'] = self.states
 
-        self._print("Saving to", self.folder_path/ckpt_name, "...")
-        torch.save(obj, self.folder_path/ckpt_name)
-        self._print("done.")
-        
-        
-    def load(self, ckpt_name: str|Literal['latest'] = 'latest'):
-        '''
-        Load the model, optimizer and states from the specified checkpoint file.
+        ckpt_name = version_folder / CKPT_NAME
 
-        Args:
-            ckpt_name (str or Literal['latest']): The name of the checkpoint file. If 'latest', the latest checkpoint file in the folder will be loaded. Defaults to 'latest'.
+        self._print("Saving to", ckpt_name, "...")
+        torch.save(obj, ckpt_name)
+        self._print("done.")
+
+        return version_name
+        
+        
+    def load(self, version_name: str|Literal['latest', 'none']) -> str|Literal['none']:
+        '''
+        Load the model, optimizer and states from the current version folder.
 
         Returns:
-            None
+            str|Literal['none']: the name for the loaded version.
 
         Raises:
             FileNotFoundError: If no checkpoint file is found in the folder.
             ValueError: If the loading the optimizer is required, while the optimizer state is not found in the checkpoint.
         '''
 
+        if version_name == 'none':
+            self._print("No version name specified. Skipping loading.")
+
+
         # calculate the source path
-        if ckpt_name == 'latest':
-            ckpt_files = list(self.folder_path.glob("*.pth"))
-            if len(ckpt_files) == 0:
-                raise FileNotFoundError(f"No checkpoint file found in {self.folder_path}.")
-            ckpt_files.sort()
-            source_path = ckpt_files[-1]
+        if version_name == 'latest':
+            version_folders = list(folder for folder in self.folder_path.glob("*") if folder.is_dir())
 
+            if len(version_folders) == 0:
+                raise FileNotFoundError(f"Version name was set to 'latest', but no version folder found in {self.folder_path}.")
+            version_folders.sort(key=lambda x: os.path.getctime(x))
+            version_folder = version_folders[-1]
+            version_name = version_folder.name
+
+        version_folder = self.folder_path/version_name
+
+        # check whether the version folder exists
+        if not version_folder.exists():
+            self._print(f"Version folder {version_folder} not found.")
+            return 'none'
+        
         else:
-            source_path = self.folder_path/ckpt_name
+            source_path = version_folder / CKPT_NAME
+            
 
-        self._print("Loading from", source_path, "...")
+            self._print("Loading from", source_path, "...")
 
-        obj = torch.load(source_path, weights_only=True, map_location=self.device)
+            obj = torch.load(source_path, weights_only=True, map_location=self.device)
 
-        self.model.load_state_dict(obj['model'], strict=True)
+            self.model.load_state_dict(obj['model'], strict=True)
 
-        if self.optimizer is not None:
-            if 'optimizer' not in obj:
-                raise ValueError("Optimizer state not found in the checkpoint.")
-            self.optimizer.load_state_dict(obj['optimizer'])
+            if self.optimizer is not None:
+                if 'optimizer' not in obj:
+                    raise ValueError("Optimizer state not found in the checkpoint.")
+                self.optimizer.load_state_dict(obj['optimizer'])
 
-        self.states = obj.get('states', {})
+            self.states = obj.get('states', {})
 
-        self._print("done.")
+            self._print("done.")
+            return version_name
 
