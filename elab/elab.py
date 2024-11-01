@@ -1,5 +1,5 @@
 
-from typing import Literal, Type, Tuple, Optional
+from typing import Literal, Type, Tuple, Optional, Any
 
 import torch
 from torch import nn
@@ -30,6 +30,7 @@ class ELab:
                  ckpt_name: str|Literal['latest', 'none'],
                  model: nn.Module,
                  optimizer: Optional[Optimizer] = None,
+                 default_states: Optional[dict[str, Any]] = None,
                  device: Optional[str] = None,
                  verbose: bool = True):
         '''
@@ -43,6 +44,8 @@ class ELab:
             model (nn.Module): The PyTorch model instance.
 
             optimizer (Optimizer, optional): The PyTorch optimizer instance. If `None`, only the model is loaded. Defaults to `None`.
+
+            default_states (dict, optional): The default states of the ELab object. Defaults to `None`.
 
             device (str, optional): The device to load the model and optimizer to. If `None`, the device will be inferred from the checkpoint. Defaults to `None`.
 
@@ -63,7 +66,7 @@ class ELab:
         self._print("Device: ", device)
         self.device = device
 
-        self.states = {}
+        self.states = default_states if default_states is not None else {}
 
         if ckpt_name != 'none':
             self.load(ckpt_name)
@@ -89,7 +92,7 @@ class ELab:
 
         obj['states'] = self.states
 
-        self._print("Saving to", self.folder_path/ckpt_name, "...", end="")
+        self._print("Saving to", self.folder_path/ckpt_name, "...")
         torch.save(obj, self.folder_path/ckpt_name)
         self._print("done.")
         
@@ -111,16 +114,16 @@ class ELab:
 
         # calculate the source path
         if ckpt_name == 'latest':
-            ckpt_files = list(self.folder_path.glob("*"))
+            ckpt_files = list(self.folder_path.glob("*.pth"))
             if len(ckpt_files) == 0:
                 raise FileNotFoundError(f"No checkpoint file found in {self.folder_path}.")
             ckpt_files.sort()
-            source_path = self.folder_path/ckpt_files[-1]
+            source_path = ckpt_files[-1]
 
         else:
             source_path = self.folder_path/ckpt_name
 
-        self._print("Loading from", source_path, "...", end="")
+        self._print("Loading from", source_path, "...")
 
         load_args = {}
         if self.device is not None:
