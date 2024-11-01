@@ -31,10 +31,10 @@ class ELab:
                  model: nn.Module,
                  optimizer: Optional[Optimizer] = None,
                  default_states: Optional[dict[str, Any]] = None,
-                 device: Optional[str] = None,
                  verbose: bool = True):
         '''
         Initialize the ELab object by specifying the folder path, the checkpoint to load, as well as the model and optimizer instances.
+        The device is automatically set to the device of the model.
 
         Args:
             folder_path (str or Path): The folder path where the checkpoint files are stored.
@@ -46,8 +46,6 @@ class ELab:
             optimizer (Optimizer, optional): The PyTorch optimizer instance. If `None`, only the model is loaded. Defaults to `None`.
 
             default_states (dict, optional): The default states of the ELab object. Defaults to `None`.
-
-            device (str, optional): The device to load the model and optimizer to. If `None`, the device will be inferred from the checkpoint. Defaults to `None`.
 
             verbose (bool): Whether to print messages. Defaults to `True`.
         '''
@@ -63,8 +61,8 @@ class ELab:
         self._print("Optimizer: ", type(optimizer))
         self.optimizer = optimizer
 
-        self._print("Device: ", device)
-        self.device = device
+        self.device = next(model.parameters()).device
+        self._print("Device: ", self.device)
 
         self.states = default_states if default_states is not None else {}
 
@@ -125,11 +123,7 @@ class ELab:
 
         self._print("Loading from", source_path, "...")
 
-        load_args = {}
-        if self.device is not None:
-            load_args['map_location'] = self.device
-
-        obj = torch.load(source_path, weights_only=True, **load_args)
+        obj = torch.load(source_path, weights_only=True, map_location=self.device)
 
         self.model.load_state_dict(obj['model'], strict=True)
 
