@@ -1,182 +1,141 @@
 
-from typing import Type, Tuple
+from typing import Literal, Type, Tuple, Optional
 
 import torch
 from torch import nn
-from torch import optim
-
-from .config import ELabConfig
-
-import torch.multiprocessing as mp
-import torch.distributed as dist
-from torch.utils.data.distributed import DistributedSampler
-from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.distributed import init_process_group, destroy_process_group
-import os
-
-# TODO: I can preseve the tokenizer in the ELab class.
+from torch.optim.optimizer import Optimizer
+from pathlib import Path
 
 class ELab:
-    def print(self, *args, **kwargs):
-        if self.verbose and (not self._ddp or self.rank == 0):
-            print("[ELab] ", *args, **kwargs)
+    '''
+    The ELab class is a utility class for saving and loading PyTorch models and optimizers.
+
+    Attributes:
+        folder_path (Path): The folder path where the checkpoint files are stored.
+
+        model (nn.Module): The PyTorch model instance.
+
+        optimizer (Optimizer, optional): The PyTorch optimizer instance. If `None`, the optimizer will not be maintained.
+
+        device (str): The device to load the model and optimizer to.
+
+        states (dict): The states of the ELab object.
+    '''
+    def _print(self, *args, **kwargs):
+        if self.verbose:
+            print("[ELab] ", *args, **kwargs, flush=True)
 
     def __init__(self, 
-                 config: ELabConfig | str, 
-                 model: nn.Module, 
-                 optimizer: optim.Optimizer,
-                 device: str = 'cpu',
-                 
-                 # Distributed training parameters
-                 ddp: bool = False,
-                 rank: int = 0, world_size:int = 1,
-                 backend: str = "nccl",
-                 master_addr: str = "localhost",
-                 master_port: int = 12355,
-                 verbose = True):
+                 folder_path: str|Path, 
+                 ckpt_name: str|Literal['latest', 'none'],
+                 model: nn.Module,
+                 optimizer: Optional[Optimizer] = None,
+                 device: Optional[str] = None,
+                 verbose: bool = True):
+        '''
+        Initialize the ELab object by specifying the folder path, the checkpoint to load, as well as the model and optimizer instances.
 
-        self._ddp = ddp
-        self.rank = rank
-        self.world_size = world_size
-        self.backend = backend
-        self.master_addr = master_addr
-        self.master_port = master_port
+        Args:
+            folder_path (str or Path): The folder path where the checkpoint files are stored.
+
+            ckpt_name (str or Literal['latest', 'none']): If 'none', no checkpoint file will be loaded. Otherwise, the model and optimizer will be loaded from the specified checkpoint file. If `ckpt_name` is 'latest', the latest checkpoint file in the folder will be loaded.
+
+            model (nn.Module): The PyTorch model instance.
+
+            optimizer (Optimizer, optional): The PyTorch optimizer instance. If `None`, only the model is loaded. Defaults to `None`.
+
+            device (str, optional): The device to load the model and optimizer to. If `None`, the device will be inferred from the checkpoint. Defaults to `None`.
+
+            verbose (bool): Whether to print messages. Defaults to `True`.
+        '''
+        
         self.verbose = verbose
-
-        self.print("Instantiating ELab ...")
-
-        if isinstance(config, str):
-            config = ELabConfig.from_path(config)
-        self.config = config
-
-
-        # configurate the device and ddp settings
-        if self._ddp:
-            self.print("  - Using DDP.")
-            os.environ['MASTER_ADDR'] = self.master_addr
-            os.environ['MASTER_PORT'] = str(self.master_port)
-            init_process_group(backend=self.backend, rank=self.rank, world_size=self.world_size)
-            self.device = f"cuda:{self.rank}"
-            torch.cuda.set_device(self.rank)
-            
-        else:    
-            # Define the device
-            self.print("- Using device:", device)
-            if (device == 'cuda'):
-                self.print(f"  - CUDA version: {torch.version.cuda}")
-            self.device = torch.device(device)
         
-        self.print(f"- checkpoint: {config.proj_path}")
+        self._print("ELab initializing at", folder_path)
+        self.folder_path: Path = Path(folder_path)
 
-        self.model_class = model.__class__
-        self.model = model.to(self.device)
-        
-        if self._ddp:
-            self.model = DDP(self.model, device_ids=[self.rank])
-        self.optim_class = optimizer.__class__
+        self._print("Model: ", type(model))
+        self.model = model
+
+        self._print("Optimizer: ", type(optimizer))
         self.optimizer = optimizer
 
-        self.print("  - Model Type: ", self.model_class)
-        self.print("  - Optimizer Type: ", self.optim_class)
+        self._print("Device: ", device)
+        self.device = device
 
+        self.states = {}
 
-        checkpoint_path = config.get_checkpoint_file_path()
-        if checkpoint_path is not None:
-            self.print(f"  Loading checkpoint from {checkpoint_path} ...")
+        if ckpt_name != 'none':
+            self.load(ckpt_name)
+    
+    def save(self, ckpt_name: str):
+        '''
+        Save the model, optimizer and states of this elab to the specified checkpoint file.
 
-            checkpoint = torch.load(checkpoint_path, weights_only=True, map_location=self.device)
+        Args:
+            ckpt_name (str): The name of the checkpoint file.
 
-            # try to recover the states
-            if "model_state_dict" in checkpoint:
-                module = self.model.module if self._ddp else self.model
-                module.load_state_dict(checkpoint["model_state_dict"])
-                self.print("  - Model state loaded.")
-            else:
-                self.print("  - No model state found.")
-            
-            if "optimizer_state_dict" in checkpoint:
-                self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-                self.print("  - Optimizer state loaded.")
-            else:
-                self.print("  - No optimizer state found.")
+        Returns:
+            None
+        '''
+        
+        self.folder_path.mkdir(parents=True, exist_ok=True)
+        
+        obj = {
+            'model': self.model.state_dict(),
+        }
+        if self.optimizer is not None:
+            obj['optimizer'] = self.optimizer.state_dict()
 
-            if "global_step" in checkpoint:
-                self.global_step = checkpoint["global_step"]
-                self.print("  - Global step: ", self.global_step)
-            else:
-                self.global_step = 0
-                self.print("  - No global step found. Set to 0.")
-                
-            if "proc_tokens" in checkpoint:
-                self.proc_tokens = checkpoint["proc_tokens"]
-                self.print("  - Processed tokens: ", self.proc_tokens)
-            else:
-                self.proc_tokens = 0
-                self.print("  - No processed tokens found. Set to 0.")
+        obj['states'] = self.states
+
+        self._print("Saving to", self.folder_path/ckpt_name, "...", end="")
+        torch.save(obj, self.folder_path/ckpt_name)
+        self._print("done.")
+        
+        
+    def load(self, ckpt_name: str|Literal['latest'] = 'latest'):
+        '''
+        Load the model, optimizer and states from the specified checkpoint file.
+
+        Args:
+            ckpt_name (str or Literal['latest']): The name of the checkpoint file. If 'latest', the latest checkpoint file in the folder will be loaded. Defaults to 'latest'.
+
+        Returns:
+            None
+
+        Raises:
+            FileNotFoundError: If no checkpoint file is found in the folder.
+            ValueError: If the loading the optimizer is required, while the optimizer state is not found in the checkpoint.
+        '''
+
+        # calculate the source path
+        if ckpt_name == 'latest':
+            ckpt_files = list(self.folder_path.glob("*"))
+            if len(ckpt_files) == 0:
+                raise FileNotFoundError(f"No checkpoint file found in {self.folder_path}.")
+            ckpt_files.sort()
+            source_path = self.folder_path/ckpt_files[-1]
 
         else:
-            self.print("  No checkpoint found.")
-            self.global_step = 0
-            self.proc_tokens = 0
+            source_path = self.folder_path/ckpt_name
 
-        self.print("Instantiation complete.")
+        self._print("Loading from", source_path, "...", end="")
 
+        load_args = {}
+        if self.device is not None:
+            load_args['map_location'] = self.device
 
-    @property
-    def model_size(self) -> int:
-        return sum(p.numel() for p in self.model.parameters())
-    
+        obj = torch.load(source_path, weights_only=True, **load_args)
 
-    def save_checkpoint(self, postfix: str | None = None):
-        '''
-        Save the checkpoint.
-        If postfix is None, use the global_step as postfix.
-        '''
-        if self._ddp:
-            return
-        
-        if postfix is None:
-            postfix = f"{self.global_step:08d}"
-        
-        self.config.checkpoint_path.mkdir(parents=True, exist_ok=True)
+        self.model.load_state_dict(obj['model'], strict=True)
 
-        checkpoint_filename = self.config.checkpoint_path / f"{self.config['elab_name']}-{self.config['elab_version']}-{postfix}.pt"
+        if self.optimizer is not None:
+            if 'optimizer' not in obj:
+                raise ValueError("Optimizer state not found in the checkpoint.")
+            self.optimizer.load_state_dict(obj['optimizer'])
 
-        self.print(F"Saving ELab instance to {checkpoint_filename} ...")
+        self.states = obj.get('states', {})
 
-        module = self.model.module if self._ddp else self.model
-
-        torch.save({
-            'model_state_dict': module.state_dict(),
-            'optimizer_state_dict': self.optimizer.state_dict(),
-            'global_step': self.global_step,
-            'proc_tokens': self.proc_tokens,
-        }, checkpoint_filename)
-
-        self.print("Checkpoint saved.")
-
-    def add_proc_tokens(self, extra_tokens: int):
-        '''
-        Add additional processed tokens to the counter.
-        Broadcast the tokens to all processes if DDP is enabled.
-        '''
-        if not self._ddp:
-            self.proc_tokens += extra_tokens
-        else:
-            # Define the tensor to broadcast
-            extra_tokens_broadcast = torch.tensor([extra_tokens]).to(self.device)
-
-            # Broadcast the extra tokens to all processes in the group
-            dist.broadcast(extra_tokens_broadcast, src=self.rank)
-            dist.all_reduce(extra_tokens_broadcast, op=dist.ReduceOp.SUM)
-            self.proc_tokens += extra_tokens_broadcast.item()
-
-    def train(self):
-        raise NotImplementedError("train() is not implemented.")
-    
-
-    def __del__(self):
-        if self._ddp:
-            destroy_process_group()
-
+        self._print("done.")
 
