@@ -38,7 +38,7 @@ def get_grad_norm(model: nn.Module, norm_type: float = 2.0) -> float:
 def set_adamw_params(
         optimizer: torch.optim.AdamW, 
         lr: Optional[float] = None, 
-        betas: Optional[float] = None, 
+        betas: Optional[tuple[float, float]] = None, 
         eps: Optional[float] = None, 
         weight_decay: Optional[float] = None) -> torch.optim.AdamW:
     """
