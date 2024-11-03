@@ -11,6 +11,26 @@ from .utils import get_parameter_size
 
 CKPT_NAME = "ckpt.pth"
 
+def is_elab_folder(folder_path: str|Path) -> bool:
+    '''
+    Check whether the folder is an ELab folder.
+
+    Args:
+        folder_path (str or Path): The folder path to check.
+
+    Returns:
+        bool: Whether the folder is an ELab folder.
+    '''
+    folder_path = Path(folder_path)
+
+    if not folder_path.exists() or not folder_path.is_dir():
+        return False
+    
+    if not (folder_path / CKPT_NAME).exists():
+        return False
+    
+    return True
+
 class ELab:
     '''
     The ELab class is a utility class for saving and loading PyTorch models and optimizers.
@@ -62,7 +82,7 @@ class ELab:
 
         self._print("Model: ", type(model))
         self.model = model
-        self._print(" - Parameter size: ", get_parameter_size(model))
+        self._print(f" - Parameter size: {get_parameter_size(model):,}")
 
 
         self._print("Optimizer: ", type(optimizer))
@@ -130,7 +150,7 @@ class ELab:
 
         # calculate the source path
         if version_name == 'latest':
-            version_folders = list(folder for folder in self.folder_path.glob("*") if folder.is_dir())
+            version_folders = list(folder for folder in self.folder_path.glob("*") if is_elab_folder(folder))
 
             if len(version_folders) == 0:
                 raise FileNotFoundError(f"Version name was set to 'latest', but no version folder found in {self.folder_path}.")

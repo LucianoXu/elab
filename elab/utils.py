@@ -35,6 +35,45 @@ def get_grad_norm(model: nn.Module, norm_type: float = 2.0) -> float:
     return total_norm
 
 
+def set_adamw_params(
+        optimizer: torch.optim.adamw.AdamW, 
+        r: Optional[float] = None, 
+        betas: Optional[float] = None, 
+        eps: Optional[float] = None, 
+        weight_decay: Optional[float] = None) -> torch.optim.adamw.AdamW:
+    """
+    Set the parameters of the AdamW optimizer. In-place operation.
+    None values will not change the corresponding parameter.
+
+    Args:
+        optimizer (torch.optim.adamw.AdamW): The AdamW optimizer instance.
+        r (float, optional): The learning rate. Defaults to None.
+        betas (float, optional): The betas. Defaults to None.
+        eps (float, optional): The epsilon. Defaults to None.
+        weight_decay (float, optional): The weight decay. Defaults to None.
+
+    Returns:
+        torch.optim.adamw.AdamW: The AdamW optimizer instance.
+    """
+
+    if r is not None:
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = r
+
+    if betas is not None:
+        for param_group in optimizer.param_groups:
+            param_group['betas'] = betas
+
+    if eps is not None:
+        for param_group in optimizer.param_groups:
+            param_group['eps'] = eps
+
+    if weight_decay is not None:
+        for param_group in optimizer.param_groups:
+            param_group['weight_decay'] = weight_decay
+
+    return optimizer
+
 
 def sample_top_p(probs, p):
     """
