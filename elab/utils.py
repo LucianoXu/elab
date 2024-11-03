@@ -36,11 +36,11 @@ def get_grad_norm(model: nn.Module, norm_type: float = 2.0) -> float:
 
 
 def set_adamw_params(
-        optimizer: torch.optim.adamw.AdamW, 
+        optimizer: torch.optim.AdamW, 
         r: Optional[float] = None, 
         betas: Optional[float] = None, 
         eps: Optional[float] = None, 
-        weight_decay: Optional[float] = None) -> torch.optim.adamw.AdamW:
+        weight_decay: Optional[float] = None) -> torch.optim.AdamW:
     """
     Set the parameters of the AdamW optimizer. In-place operation.
     None values will not change the corresponding parameter.
