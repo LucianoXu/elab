@@ -106,6 +106,7 @@ def generate(
         EOT_id: Optional[int] = None,
         T: float = 0.6,
         p_threshold: float = 0.95,
+        repitition_penalty: Optional[float] = None,
         include_prompt: bool = True,
         show_progress: bool = True) -> list[int]:
     '''
@@ -123,6 +124,8 @@ def generate(
         T(float, optional): The temperature for sampling. Defaults to 0.6.
 
         p_threshold(float, optional): The probability threshold for top-p sampling. Defaults to 0.95.
+
+        repitition_penalty(float, optional): The repitition penalty, should be greater than 1 or None. Defaults to None.
 
         include_prompt(bool, optional): Whether to include the prompt in the generated sequence. Defaults to True.
 
@@ -144,6 +147,12 @@ def generate(
     for i in it:
         output = model.forward(inputs)
         logits = output[:, -1, :]
+
+        # repetition penalty
+        if repitition_penalty is not None:
+            for token in set(inputs[0].tolist()):
+                logits[0, token] /= repitition_penalty
+
         logits = logits / T
         probs = torch.softmax(logits, dim=-1)
         next_token = sample_top_p(probs, p_threshold)
