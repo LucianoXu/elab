@@ -53,9 +53,8 @@ class ELab:
     def __init__(self, 
                  folder_path: str|Path, 
                  version_name: str|Literal['latest', 'none'],
-                 model: nn.Module,
-                 optimizer: Optional[Optimizer] = None,
-                 default_states: Optional[dict[str, Any]] = None,
+                 data: dict[str, Any],
+                 device: str|torch.device,
                  verbose: bool = True):
         '''
         Initialize the ELab object by specifying the folder path, the checkpoint to load, as well as the model and optimizer instances.
@@ -80,18 +79,8 @@ class ELab:
         self._print("ELab initializing at", folder_path)
         self.folder_path: Path = Path(folder_path)
 
-        self._print("Model: ", type(model))
-        self.model = model
-        self._print(f" - Parameter size: {get_parameter_size(model):,}")
-
-
-        self._print("Optimizer: ", type(optimizer))
-        self.optimizer = optimizer
-
-        self.device = next(model.parameters()).device
-        self._print("Device: ", self.device)
-
-        self.states = default_states if default_states is not None else {}
+        self.data = data
+        self.device = device
 
         self.load(version_name)
     
@@ -114,19 +103,22 @@ class ELab:
         version_folder = self.folder_path / version_name
         
         version_folder.mkdir(parents=True, exist_ok=True)
-        
-        obj = {
-            'model': self.model.state_dict(),
-        }
-        if self.optimizer is not None:
-            obj['optimizer'] = self.optimizer.state_dict()
-
-        obj['states'] = self.states
 
         ckpt_name = version_folder / CKPT_NAME
 
         self._print("Saving to", ckpt_name, "...")
+
+        obj = {}
+        for key in self.data:
+            if isinstance(self.data[key], nn.Module):
+                obj[key] = self.data[key].state_dict()
+            elif isinstance(self.data[key], Optimizer):
+                obj[key] = self.data[key].state_dict()
+            else:
+                obj[key] = self.data[key]
+
         torch.save(obj, ckpt_name)
+
         self._print("done.")
 
         return version_name
@@ -134,7 +126,7 @@ class ELab:
         
     def load(self, version_name: str|Literal['latest', 'none']) -> str|Literal['none']:
         '''
-        Load the model, optimizer and states from the current version folder.
+        Load from the version folder. Only keys in self.data will be loaded.
 
         Returns:
             str|Literal['none']: the name for the loaded version.
@@ -168,19 +160,20 @@ class ELab:
         else:
             source_path = version_folder / CKPT_NAME
             
-
             self._print("Loading from", source_path, "...")
+
+
 
             obj = torch.load(source_path, weights_only=True, map_location=self.device)
 
-            self.model.load_state_dict(obj['model'], strict=True)
+            for key in self.data:
+                if isinstance(self.data[key], nn.Module):
+                    self.data[key].load_state_dict(obj[key], strict=True)
+                elif isinstance(self.data[key], Optimizer):
+                    self.data[key].load_state_dict(obj[key])
+                else:
+                    self.data[key] = obj[key]
 
-            if self.optimizer is not None:
-                if 'optimizer' not in obj:
-                    raise ValueError("Optimizer state not found in the checkpoint.")
-                self.optimizer.load_state_dict(obj['optimizer'])
-
-            self.states = obj.get('states', {})
 
             self._print("done.")
             return version_name
