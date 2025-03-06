@@ -138,6 +138,7 @@ class ELab:
 
         if version_name == 'none':
             self._print("No version name specified. Skipping loading.")
+            return 'none'
 
 
         # calculate the source path
